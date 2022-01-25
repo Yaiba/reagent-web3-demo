@@ -1,59 +1,66 @@
 (ns demo.core
     (:require
       [clojure.string :as str]
+      [demo.web3 :as web3]
       [reagent.core :as r]
       [reagent.dom :as d]
       [goog.labs.format.csv :as csv]
       [cljs.core.async :refer [<! >! put! chan go go-loop] :as a]
       [cljs.core.async.interop :refer-macros [<p!]]
-      [demo.web3 :as web3]
       ;;["./artifacts/deployments/map.json" :as m]
       ))
 
-(comment
-  (:require-macros
-   [cljs.core.async.macros :refer [go go-loop]]))
+(enable-console-print!)
 
-;;(def zep-abi (get (js/JSON.parse zpabi) "abi"))
+(def w3 (r/atom
+         {:provider nil
+          :signer nil
+          :account ""
+          :balance 0
+          :readable-abi []}))
 
-;;(js/console.log zep-abi)
+(defn handle-ethereum
+  []
+  (let [detected web3/is-metamask-installed]
+    (if detected
+      (do
+        (println "metamask is detected")
+        (let [provider (web3/get-provider)
+              signer (.getSigner provider)]
+          (reset! w3 {:provider provider
+                      :signer signer
+                      :account ""
+                      :balance 0
+                      :readable-abi []})))
+      (println "plz install metamask"))
+    (js/console.log "w3 state : " w3)))
 
-(def w3
-  (r/atom
-   (if web3/is-metamask-installed
-     (let [provider (web3/get-provider)
-           signer (.getSigner provider)]
-       {:provider provider
-        :signer signer
-        :account ""
-        :balance 0
-        :readable-abi []})
-     (do
-       (js/console.log "metamask is not installed")
-       {:provider nil
-        :signer nil
-        :account ""
-        :balance 0
-        :readable-abi []}))))
+(defn load-event []
+  (println "Page loaded!")
+  (.addEventListener js/window "ethereum#initialized" handle-ethereum {:once true})
+  (js/setTimeout handle-ethereum 3000))
 
-(js/console.log "w3 state : " w3)
+;; event listener is not reliable
+;;(.addEventListener js/window "load" load-event false)
 
-(defonce blockheight (r/atom 0))
-(defn update-blockheight-handler
-  [e]
-  (let [provider (:provider @w3)]
-    (when (not (nil? provider))
-      (go
-        (let [r (<p! (.getBlockNumber provider))]
-          (reset! blockheight r))))))
+(defn doc-ready-handler []
+  (let[ ready-state (. js/document -readyState)]
+    (if (= "complete" ready-state)
+      (do
+        (println "document ready")
+        (handle-ethereum)))))
 
-(defonce time-updater (js/setInterval update-blockheight-handler 5000))
+(defn on-doc-ready []
+  (set! (.-onreadystatechange js/document) doc-ready-handler))
+
+(on-doc-ready)
 
 (defn chain-change-handler
   [e]
   (.reload js/window.location))
 
-(.on web3/ethereum "chainChanged" chain-change-handler)
+(if web3/is-metamask-installed
+  (.on web3/ethereum "chainChanged" chain-change-handler))
 
 ;; -------------------------
 ;; Views
@@ -70,6 +77,17 @@
 (defn gen-key! []
   (let [next (swap! uniq-key inc)]
     next))
+
+(defonce blockheight (r/atom 0))
+(defn update-blockheight-handler
+  [e]
+  (let [provider (:provider @w3)]
+    (when (not (nil? provider))
+      (go
+        (let [r (<p! (.getBlockNumber provider))]
+          (reset! blockheight r))))))
+
+(defonce block-updater (js/setInterval update-blockheight-handler 5000))
 
 (def first-file
   "Accepts input change events and gets the first selected file."
@@ -203,7 +221,7 @@
                              (js/console.log "input args order : " input-args-order)
                              (js/console.log "input args : " tx-input-map)
                              (js/console.log "converted input : " tx-input)
-                             (js/console.log "tx results : " tx-results)                           
+                             (js/console.log "tx results : " tx-results)
                              (js/console.log "converted result : " cvt-result)
                              (swap! app-state assoc-in [:tx-result fname] tx-results)
                              (swap! app-state assoc-in [:cvt-result fname] cvt-result)
@@ -269,6 +287,7 @@
 
 (defn enable-web3! [e]
   (go
+    (println "Connect Wallet  clicked")
     (if (not web3/is-metamask-installed)
       (js/alert "metamask is not installed")
       (let [[addr] (<p! (web3/request-accounts))

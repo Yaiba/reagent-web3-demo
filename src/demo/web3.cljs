@@ -1,6 +1,5 @@
 (ns demo.web3
   (:require ["ethers" :as ethers]
-            [goog.object]
             [cljs.core.async.interop :refer-macros [<p!]]
             [cljs.core.async :refer [go]]))
 
@@ -8,9 +7,7 @@
 (def utils (.-utils ethers))
 
 (def is-metamask-installed
-  (if (and ethereum (.-isMetaMask ethereum))
-    true
-    false))
+  (and ethereum (.-isMetaMask ethereum)))
 
 (defn to-readable-abi [json-abi]
   (-> json-abi
